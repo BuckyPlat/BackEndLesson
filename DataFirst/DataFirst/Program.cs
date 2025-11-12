@@ -1,7 +1,12 @@
+using DataFirst.Models;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+builder.Services.AddDbContext<GameVuiVlContext>(option =>
+    option.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnect")));
 
 var app = builder.Build();
 

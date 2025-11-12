@@ -1,0 +1,39 @@
+﻿@model IEnumerable<DataFirst.Models.Player>
+
+@{
+    ViewData["Title"] = "Danh sách người chơi";
+}
+
+<div class="container mt-4">
+    <h2 class="text-center mb-4"> @ViewData["Title"]</h2>
+    @if (Model == null || !Model.Any())
+    {
+        <div class="arlert arlert-info text-center">
+            Chưa có dữ liệu về Player trong CSDL SQL Server
+        </div>
+    }
+    else
+    {
+        <table class="table table-bordered table-striped">
+            <thead class="table-dark">
+                <tr>
+                    <th>Id</th>
+                    <th>Username</th>
+                    <th>Levi</th>
+                    <th>Gold</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach(var player in Model)
+                {
+                    <tr>
+                        <td>@player.Id</td>
+                        <td>@player.Username</td>
+                        <td>@player.Levi</td>
+                        <td>@player.Gold</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
