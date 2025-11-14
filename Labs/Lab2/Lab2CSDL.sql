@@ -1,50 +1,64 @@
-create database lab2
+CREATE DATABASE Lab2;
 
-use lab2
+USE Lab2;
 
-create table USSR(
-UssrID tinyint primary key identity(1,1),
-UssrName nvarchar(20) not null,
-RegionID tinyint not null,
-LinkAvatar nvarchar(50),
-IsDeleted bit default(1),
-RoleID tinyint not null,
-OTP numeric(11)
-)
+CREATE TABLE Region (
+    RegionID SMALLINT PRIMARY KEY IDENTITY(1,1),
+    Name NVARCHAR(50) NOT NULL
+);
 
-foreign key (
+CREATE TABLE Role (
+    RoleID SMALLINT PRIMARY KEY IDENTITY(1,1),
+    Name NVARCHAR(30) NOT NULL
+);
 
-create table Region(
-RegionID tinyint primary key identity(1,1),
-RegionName nvarchar(40) not null,
-)
+CREATE TABLE [User] (
+    UserID SMALLINT PRIMARY KEY IDENTITY(1,1),
+    Name NVARCHAR(50) NOT NULL,
+    RegionID SMALLINT NOT NULL,
+    LinkAvatar NVARCHAR(255),
+    IsDeleted BIT DEFAULT(0),
+    RoleID SMALLINT NOT NULL,
+    OTP VARCHAR(6),
 
-create table Rolle(
-RoleID tinyint primary key identity(1,1),
-RoleName nvarchar(20)
-)
+    CONSTRAINT FK_User_Region 
+        FOREIGN KEY (RegionID) REFERENCES Region(RegionID),
 
-create table GameLevel(
-LevelID tinyint primary key identity(1,1),
-Title nvarchar(20) not null,
-Descriptions nvarchar(50),
-)
+    CONSTRAINT FK_User_Role
+        FOREIGN KEY (RoleID) REFERENCES Role(RoleID)
+);
 
-create table Question(
-QuestionID tinyint primary key identity(1,1),
-ContentQuestion nvarchar(50) not null,
-Answer nvarchar(50),
-Option1 nvarchar(50),
-Option2 nvarchar(50),
-Option3 nvarchar(50),
-Option4 nvarchar(50),
-LevelID tinyint not null,
-)
+CREATE TABLE GameLevel (
+    LevelID SMALLINT PRIMARY KEY IDENTITY(1,1),
+    Title NVARCHAR(100) NOT NULL,
+    Description NVARCHAR(255)
+);
 
-create table LevelResult(
-QuizzResult tinyint primary key identity(1,1),
-UssrID tinyint not null,
-LevelID tinyint not null,
-Score int,
-CompletionDate Date default GETDATE(),
-)
+CREATE TABLE Question (
+    QuestionID SMALLINT PRIMARY KEY IDENTITY(1,1),
+    ContentQuestion NVARCHAR(255) NOT NULL,
+    Answer NVARCHAR(255) NOT NULL,
+    Option1 NVARCHAR(255),
+    Option2 NVARCHAR(255),
+    Option3 NVARCHAR(255),
+    Option4 NVARCHAR(255),
+    LevelID SMALLINT NOT NULL,
+
+    CONSTRAINT FK_Question_Level
+        FOREIGN KEY (LevelID) REFERENCES GameLevel(LevelID)
+);
+
+CREATE TABLE LevelResult (
+    QuizResultID SMALLINT PRIMARY KEY IDENTITY(1,1),
+    UserID SMALLINT NOT NULL,
+    LevelID SMALLINT NOT NULL,
+    Score INT,
+    CompletionDate DATE DEFAULT GETDATE(),
+
+    CONSTRAINT FK_LevelResult_User
+        FOREIGN KEY (UserID) REFERENCES [User](UserID),
+
+    CONSTRAINT FK_LevelResult_Level
+        FOREIGN KEY (LevelID) REFERENCES GameLevel(LevelID)
+);
+GO
