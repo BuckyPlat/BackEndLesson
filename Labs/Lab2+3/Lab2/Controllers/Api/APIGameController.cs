@@ -1,6 +1,7 @@
 ﻿using Lab2.Data;
 using Lab2.DTO;
 using Lab2.Models;
+using Lab2.Views.ViewModel;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.Data;
@@ -156,11 +157,11 @@ namespace Lab2.Controllers.Api
         }
 
         [HttpGet("GetAllQuestionGameByLevel/{LevelId}")]
-        public async Task<IActionResult> GetAllQuestionGameByLevel(int Levelid)
+        public async Task<IActionResult> GetAllQuestionGameByLevel(int LevelId)
         {
             try
             {
-                var questionGame = await _db.Questions.Where(x => x.LevelId == Levelid).ToListAsync();
+                var questionGame = await _db.Questions.Where(x => x.LevelId == LevelId).ToListAsync();
                 _response.IsSuccess = true;
                 _response.Notification = "Lấy dữ liệu thành công";
                 _response.Data = questionGame;
@@ -187,8 +188,10 @@ namespace Lab2.Controllers.Api
                     Score = levelResult.Score,
                     CompletionDate = DateOnly.FromDateTime(DateTime.Now)
                 };
-                await _db.LevelResult.AddAsync(levelResultSave);
+
+                await _db.LevelResults.AddAsync(levelResultSave);
                 await _db.SaveChangesAsync();
+
                 _response.IsSuccess = true;
                 _response.Notification = "Lưu kết quả thành công";
                 _response.Data = levelResult;
@@ -203,5 +206,129 @@ namespace Lab2.Controllers.Api
             }
         }
 
+        [HttpGet("Rating/{idRegion}")]
+        public async Task<IActionResult> Rating(int idRegion)
+        {
+            try
+            {
+                if (idRegion > 0)
+                {
+                    var nameRegion = await _db.Regions.Where(x => x.RegionId == idRegion)
+                                                      .Select(x => x.Name)
+                                                      .FirstOrDefaultAsync();
+                    if (nameRegion == null)
+                    {
+                        _response.IsSuccess = false;
+                        _response.Notification = "Không tìm thấy khu vực";
+                        _response.Data = null;
+                        return BadRequest(_response);
+                    }
+
+                    var userByRegion = await _db.Users.Where(x => x.RegionId == idRegion).ToListAsync();
+                    var resultLevelByRegion = await _db.LevelResults
+                                                       .Where(x => userByRegion.Select(t => t.Id)
+                                                       .Contains(x.UserId))
+                                                       .ToListAsync();
+
+                    RatingVM ratingVM = new();
+                    ratingVM.NameRegion = nameRegion;
+                    ratingVM.userResultSums = new();
+
+                    foreach (var item in userByRegion)
+                    {
+                        var sumScore = resultLevelByRegion
+                                       .Where(x => x.UserId == item.Id)
+                                       .Sum(x => x.Score);
+
+                        var sumLevel = resultLevelByRegion
+                                       .Where(x => x.UserId == item.Id)
+                                       .Count();
+
+                        UserResultSum userResultSum = new();
+                        userResultSum.NameUser = item.Name;
+                        userResultSum.SumScore = sumScore;
+                        userResultSum.SumLevel = sumLevel;
+                        ratingVM.userResultSums.Add(userResultSum);
+                    }
+
+                    _response.IsSuccess = true;
+                    _response.Notification = "Lấy dữ liệu thành công";
+                    _response.Data = ratingVM;
+                    return Ok(_response);
+                }
+                else
+                {
+                    var user = await _db.Users.ToListAsync();
+                    var resultLevel = await _db.LevelResults.ToListAsync();
+                    string nameRegion = "Tất cả";
+
+                    RatingVM ratingVM = new();
+                    ratingVM.NameRegion = nameRegion;
+                    ratingVM.userResultSums = new();
+
+                    foreach (var item in user)
+                    {
+                        var sumScore = resultLevel
+                                       .Where(x => x.UserId == item.Id)
+                                       .Sum(x => x.Score);
+
+                        var sumLevel = resultLevel
+                                       .Where(x => x.UserId == item.Id)
+                                       .Count();
+
+                        UserResultSum userResultSum = new();
+                        userResultSum.NameUser = item.Name;
+                        userResultSum.SumScore = sumScore;
+                        userResultSum.SumLevel = sumLevel;
+                        ratingVM.userResultSums.Add(userResultSum);
+                    }
+
+                    _response.IsSuccess = true;
+                    _response.Notification = "Lấy dữ liệu thành công";
+                    _response.Data = ratingVM;
+                    return Ok(_response);
+                }
+            }
+            catch (Exception ex)
+            {
+                _response.IsSuccess = false;
+                _response.Notification = "Lỗi!";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        [HttpGet("GetUserInformation/{userId}")]
+        public async Task<IActionResult> GetUserInformation(string userId)
+        {
+            try
+            {
+                var user = await _db.Users.Where(x => x.Id == userId).FirstOrDefaultAsync();
+                if(user == null)
+                {
+                    _response.IsSuccess = false;
+                    _response.Notification = "Không tìm thấy người dùng";
+                    _response.Data = null;
+                    return BadRequest(_response);
+                }
+                UserInformationVM userInformationVM = new();
+                userInformationVM.Name = user.Name;
+                userInformationVM.Email = user.Email;
+                userInformationVM.Avartar = user.Avatar;
+                userInformationVM.Region = await _db.Regions.Where(x => x.RegionId == user.RegionId)
+                    .Select(x => x.Name).FirstOrDefaultAsync();
+                _response.IsSuccess = true;
+                _response.Notification = "Lấy dữ liệu thành công";
+                _response.Data = userInformationVM;
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSuccess = false;
+                _response.Notification = "Lỗi";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
     }
 }
