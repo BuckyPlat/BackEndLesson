@@ -13,6 +13,7 @@ namespace Lab2.Data
         }
         public DbSet<Lab2.Models.GameLevel> GameLevels { get; set; }
         public DbSet<Lab2.Models.Question> Questions { get; set; }
+        public DbSet<Lab2.Models.LevelResult> LevelResults { get; set; }
         public DbSet<Lab2.Models.Region> Regions { get; set; }
         public DbSet<Lab2.Models.ApplicationUser> Users { get; set; }
 
