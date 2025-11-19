@@ -1,6 +1,6 @@
-Scaffold-DbContext "Data Source=TRUNGHIEU\SQLEXPRESS;Initial Catalog=EFCore;User ID=sa;Password=123;Connect Timeout=30;Encrypt=False;TrustServerCertificate=True;ApplicationIntent=ReadWrite;MultiSubnetFailover=False" Microsoft.EntityFrameworkCore.SqlServer -OutputDir Models
+Scaffold-DbContext (them cái connection string và day) Microsoft.EntityFrameworkCore.SqlServer -OutputDir Models
 
-Laptop của Phúc: Data Source=DESKTOP-28HSMTC\SQLEXPRESS;Integrated Security=True;Connect Timeout=30;Encrypt=True;Trust Server Certificate=True;Application Intent=ReadWrite;Multi Subnet Failover=False
+Laptop của Phúc: Data Source=DESKTOP-28HSMTC\SQLEXPRESS
 
 PC của Phúc:
 
