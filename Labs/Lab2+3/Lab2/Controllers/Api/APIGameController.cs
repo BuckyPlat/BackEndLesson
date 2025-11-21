@@ -304,7 +304,7 @@ namespace Lab2.Controllers.Api
             try
             {
                 var user = await _db.Users.Where(x => x.Id == userId).FirstOrDefaultAsync();
-                if(user == null)
+                if (user == null)
                 {
                     _response.IsSuccess = false;
                     _response.Notification = "Không tìm thấy người dùng";
@@ -328,6 +328,96 @@ namespace Lab2.Controllers.Api
                 _response.Notification = "Lỗi";
                 _response.Data = ex.Message;
                 return BadRequest(_response);
+            }
+        }
+
+        [HttpPut]
+        public async Task<IActionResult> UpdateGameLevel(int id, GameLevel gameLevel)
+        {
+            try
+            {
+                if (id != gameLevel.LevelId)
+                {
+                    return BadRequest();
+                }
+                _db.Update(gameLevel);
+                await _db.SaveChangesAsync();
+                return Ok(gameLevel);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpDelete]
+        public async Task<IActionResult> DeleteGameLevel(int id)
+        {
+            try
+            {
+                var gameLevel = await _db.GameLevels.FindAsync(id);
+                if (gameLevel == null)
+                {
+                    return NotFound();
+                }
+                _db.GameLevels.Remove(gameLevel);
+                await _db.SaveChangesAsync();
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("uploadsingle")]
+        public async Task<IActionResult> UploadSingle([FromForm] FormFileData file)
+        {
+            try
+            {
+                var fileExtension = Path.GetExtension(file.formFile.FileName);
+                var fileName = Guid.NewGuid().ToString() + fileExtension;
+                var filePath = Path.Combine(Directory.GetCurrentDirectory(),
+                    "wwwroot/uploads", fileName);
+                Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.formFile.CopyToAsync(stream);
+                }
+                var fileUrl = $"{Request.Scheme}://{Request.Host}/uploads/{fileName}";
+                return Ok(new { fileUrl });
+            }
+            catch(Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("uploadmultiple")]
+        public async Task<IActionResult> UploadMultiple([FromForm] FormFileData file)
+        {
+            try
+            {
+                List<string> fileUrls = new();
+                foreach (var file in file.formFile)
+                {
+                    var fileExtension = Path.GetExtension(file.formFile.FileName);
+                    var fileName = Guid.NewGuid().ToString() + fileExtension;
+                    var filePath = Path.Combine(Directory.GetCurrentDirectory(),
+                        "wwwroot/uploads", fileName);
+                    Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+                    using (var stream = new FileStream(filePath, FileMode.Create))
+                    {
+                        await file.formFile.CopyToAsync(stream);
+                    }
+                    var fileUrl = $"{Request.Scheme}://{Request.Host}/uploads/{fileName}";
+                    fileUrls.Add(fileUrl);
+                }
+                return Ok(new { fileUrls });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
             }
         }
     }
