@@ -394,25 +394,32 @@ namespace Lab2.Controllers.Api
         }
 
         [HttpPost("uploadmultiple")]
-        public async Task<IActionResult> UploadMultiple([FromForm] FormFileData file)
+        public async Task<IActionResult> UploadMultiple([FromForm] ListFormFileData files)
         {
             try
             {
                 List<string> fileUrls = new();
-                foreach (var file in file.formFile)
+
+                foreach (var file in files.formFiles)
                 {
-                    var fileExtension = Path.GetExtension(file.formFile.FileName);
+                    var fileExtension = Path.GetExtension(file.FileName);
                     var fileName = Guid.NewGuid().ToString() + fileExtension;
-                    var filePath = Path.Combine(Directory.GetCurrentDirectory(),
+
+                    var filePath = Path.Combine(
+                        Directory.GetCurrentDirectory(),
                         "wwwroot/uploads", fileName);
+
                     Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+
                     using (var stream = new FileStream(filePath, FileMode.Create))
                     {
-                        await file.formFile.CopyToAsync(stream);
+                        await file.CopyToAsync(stream);
                     }
+
                     var fileUrl = $"{Request.Scheme}://{Request.Host}/uploads/{fileName}";
                     fileUrls.Add(fileUrl);
                 }
+
                 return Ok(new { fileUrls });
             }
             catch (Exception ex)
@@ -420,5 +427,7 @@ namespace Lab2.Controllers.Api
                 return BadRequest(ex.Message);
             }
         }
+
     }
 }
+

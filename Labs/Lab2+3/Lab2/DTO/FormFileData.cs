@@ -12,5 +12,6 @@ namespace Lab2.DTO
     {
         public List<IFormFile> formFiles { get; set; }
     }
+
 }
 

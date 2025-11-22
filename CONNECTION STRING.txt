@@ -2,6 +2,6 @@ Scaffold-DbContext (them cái connection string và day) Microsoft.EntityFramewo
 
 Laptop của Phúc: Data Source=DESKTOP-28HSMTC\SQLEXPRESS
 
-PC của Phúc:
+PC của Phúc:DESKTOP-I39HLP5\\SQLEXPRESS
 
 Laptop của Lâm:
