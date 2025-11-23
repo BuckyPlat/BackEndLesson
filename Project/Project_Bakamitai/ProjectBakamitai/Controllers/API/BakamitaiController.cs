@@ -1,12 +1,13 @@
-﻿using System.Security.Cryptography;
-using System.Text;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 using ProjectBakamitai.Data;
 using ProjectBakamitai.DTO;
 using ProjectBakamitai.Models;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ProjectBakamitai.Controllers.API
 {
@@ -34,7 +35,6 @@ namespace ProjectBakamitai.Controllers.API
         {
             try
             {
-                // 1. Kiểm tra email tồn tại
                 if (_db.Players.Any(p => p.Email == registerDTO.Email))
                 {
                     _response.IsSucess = false;
@@ -43,10 +43,8 @@ namespace ProjectBakamitai.Controllers.API
                     return BadRequest(_response);
                 }
 
-                // 2. Hash password
                 var hashedPassword = HashPasswordToBytes(registerDTO.Password);
 
-                // 3. Tạo Player mới
                 var player = new Player
                 {
                     PlayerName = registerDTO.PlayerName,
@@ -55,11 +53,9 @@ namespace ProjectBakamitai.Controllers.API
                     CreateDate = DateTime.UtcNow,
                 };
 
-                // 4. Lưu DB
                 _db.Players.Add(player);
                 await _db.SaveChangesAsync();
 
-                // 5. Response thành công
                 _response.IsSucess = true;
                 _response.Notification = "Register successful";
                 _response.Data = new
@@ -107,7 +103,7 @@ namespace ProjectBakamitai.Controllers.API
                     _response.Data = null;
                     return BadRequest(_response);
                 }
-                
+
                 _response.IsSucess = true;
                 _response.Notification = "Login success";
                 _response.Data = new
@@ -148,5 +144,171 @@ namespace ProjectBakamitai.Controllers.API
             }
         }
 
+        [HttpGet("GetItemsByType/{type}")]
+        public async Task<IActionResult> GetItemsByType(string type)
+        {
+            try
+            {
+                var items = await _db.Items
+                    .Where(i => i.ItemType == type)
+                    .ToListAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Gather Data successful";
+                _response.Data = items;
+
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+
+                return BadRequest(_response);
+            }
+        }
+
+        [HttpPost("CreateCharacter")]
+        public async Task<IActionResult> CreateCharacter(CreateCharactersDTO createCharactersDTO)
+        {
+            try
+            {
+                var player = await _db.Players.FindAsync(createCharactersDTO.PlayerId);
+                if (player == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Player not found";
+                    _response.Data = null;
+                    return BadRequest(_response);
+                }
+
+                var mode = await _db.GameModes.FindAsync(createCharactersDTO.GamemodeId);
+                if (mode == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Gamemode not found";
+                    _response.Data = null;
+                    return BadRequest(_response);
+                }
+
+                var existingCharacter = await _db.Characters
+                    .FirstOrDefaultAsync(c => c.PlayerId == createCharactersDTO.PlayerId && c.CharacterName == createCharactersDTO.CharacterName);
+                if (existingCharacter != null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Character name already exists for this player";
+                    _response.Data = null;
+                    return BadRequest(_response);
+                }
+
+                var character = new Character
+                {
+                    PlayerId = createCharactersDTO.PlayerId,
+                    CharacterName = createCharactersDTO.CharacterName,
+                    GamemodeId = createCharactersDTO.GamemodeId,
+                };
+                _db.Characters.Add(character);
+                await _db.SaveChangesAsync();
+                _response.IsSucess = true;
+                _response.Notification = "Character created successfully";
+                _response.Data = new
+                {
+                    CharacterID = character.CharacterId,
+                    CharacterName = character.CharacterName,
+                    PlayerID = character.PlayerId,
+                    GamemodeID = character.GamemodeId
+                };
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        [HttpGet("GetCharactersByPlayer/{PlayerName}")]
+        public async Task<IActionResult> GetCharactersByPlayer(string PlayerName)
+        {
+            try
+            {
+                var playername = await _db.Players
+                    .FirstOrDefaultAsync(p => p.PlayerName.ToLower() == PlayerName.ToLower());
+                if(playername == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Player not found";
+                    return NotFound(_response);
+                }
+                var characters = await _db.Characters
+                    .Where(c => c.PlayerId == playername.PlayerId)
+                    .Include(c => c.Player)
+                    .Include(c => c.Gamemode)
+                    .Select(c => new CharacterResponseDTO
+                    {
+                        CharacterId = c.CharacterId,
+                        CharacterName = c.CharacterName,
+                        PlayerName = c.Player.PlayerName,
+                        GamemodeName = c.Gamemode.ModeName
+                    })
+                    .ToListAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Gather Data successful";
+                _response.Data = characters;
+
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        [HttpGet("GetCharacterByGamemode/{ModeName}")]
+        public async Task<IActionResult> GetCharacterByGamemode(string ModeName)
+        {
+            try
+            {
+                var gamemode = await _db.GameModes
+                    .FirstOrDefaultAsync(g => g.ModeName.ToLower() == ModeName.ToLower());
+
+                if (gamemode == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Gamemode not found";
+                    return NotFound(_response);
+                }
+                var characters = await _db.Characters
+                    .Where(c => c.GamemodeId == gamemode.GamemodeId)
+                    .Include(c => c.Player)
+                    .Include(c => c.Gamemode)
+                    .Select(c => new CharacterResponseDTO
+                    {
+                        CharacterId = c.CharacterId,
+                        CharacterName = c.CharacterName,
+                        PlayerName = c.Player.PlayerName,
+                        GamemodeName = c.Gamemode.ModeName
+                    })
+                    .ToListAsync();
+                _response.IsSucess = true;
+                _response.Notification = "Gather Data successful";
+                _response.Data = characters;
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
     }
 }
