@@ -443,16 +443,13 @@ namespace ProjectBakamitai.Controllers.API
             }
         }
 
-
         // YÊU CẦU 5: Thêm item mới
         [HttpPost("AddItem")]
         public async Task<IActionResult> AddItem([FromBody] AddItemDTO itemDTO)
         {
             var response = new ResponseApi();
-
             try
             {
-                // Validate
                 if (string.IsNullOrWhiteSpace(itemDTO.ItemName))
                 {
                     response.IsSucess = false;
@@ -473,17 +470,14 @@ namespace ProjectBakamitai.Controllers.API
                     response.Notification = "Price must be greater than zero";
                     return BadRequest(response);
                 }
-
-                // ✅ Mapping ItemType → ShopID
                 var typeToShop = new Dictionary<string, byte>
-        {
-            { "Transportation", 1 },
-            { "Weapon", 2 },
-            { "Tool", 3 },
-            { "Resource", 4 }
-        };
+                {
+                    { "Transportation", 1 },
+                    { "Weapon", 2 },
+                    { "Tool", 3 },
+                    { "Resource", 4 }
+                };
 
-                // Step 1 — Tạo Item mới
                 var item = new Item
                 {
                     ItemName = itemDTO.ItemName,
@@ -492,9 +486,7 @@ namespace ProjectBakamitai.Controllers.API
                 };
 
                 _db.Items.Add(item);
-                await _db.SaveChangesAsync(); // Lấy ItemId tự tăng
-
-                // Step 2 — Auto-gán ShopItem theo ItemType
+                await _db.SaveChangesAsync();
                 if (typeToShop.TryGetValue(item.ItemType, out byte shopId))
                 {
                     var shopItem = new ShopItem
@@ -507,7 +499,6 @@ namespace ProjectBakamitai.Controllers.API
                     await _db.SaveChangesAsync();
                 }
 
-                // Step 3 — Response
                 response.IsSucess = true;
                 response.Notification = "Item added successfully";
                 response.Data = new
@@ -535,13 +526,12 @@ namespace ProjectBakamitai.Controllers.API
 
 
 
-        // YÊU CẦU 6: Cập nhật mật khẩu người chơi
+        // YÊU CẦU 8: Cập nhật mật khẩu người chơi
         [HttpPut("UpdatePassword")]
         public async Task<IActionResult> UpdatePasswordByEmail([FromBody] UpdatePasswordDTO updatepasswordDTO)
         {
             try
             {
-                // 1. Tìm player theo email
                 var player = await _db.Players
                     .FirstOrDefaultAsync(p => p.Email == updatepasswordDTO.Email);
 
@@ -552,7 +542,6 @@ namespace ProjectBakamitai.Controllers.API
                     return NotFound(_response);
                 }
 
-                // 2. Kiểm tra mật khẩu cũ
                 var oldHash = HashPasswordToBytes(updatepasswordDTO.OldPassword);
 
                 if (!player.PasswordHash.SequenceEqual(oldHash))
@@ -562,7 +551,6 @@ namespace ProjectBakamitai.Controllers.API
                     return BadRequest(_response);
                 }
 
-                // 3. Cập nhật mật khẩu mới
                 player.PasswordHash = HashPasswordToBytes(updatepasswordDTO.NewPassword);
                 await _db.SaveChangesAsync();
 
@@ -658,6 +646,433 @@ namespace ProjectBakamitai.Controllers.API
             }
         }
 
+        [HttpPost("Buy")]
+        public async Task<IActionResult> BuyItem([FromBody] BuyItemDTO dto)
+        {
+            var response = new ResponseApi();
 
+            try
+            {
+                // 1. Check Player
+                var player = await _db.Players
+                    .Include(p => p.Characters)
+                    .FirstOrDefaultAsync(p => p.PlayerId == dto.PlayerId);
+
+                if (player == null)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Player not found";
+                    return NotFound(response);
+                }
+
+                // 2. Get Character (only 1)
+                var character = player.Characters.FirstOrDefault();
+                if (character == null)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Player has no character";
+                    return BadRequest(response);
+                }
+
+                // 3. Check Item
+                var item = await _db.Items.FirstOrDefaultAsync(i => i.ItemId == dto.ItemId);
+                if (item == null)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Item not found";
+                    return BadRequest(response);
+                }
+
+                // 4. Check shop sells item
+                bool isSold = await _db.ShopItems
+                    .AnyAsync(si => si.ShopId == dto.ShopId && si.ItemId == dto.ItemId);
+
+                if (!isSold)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Shop does not sell this item";
+                    return BadRequest(response);
+                }
+
+                // 5. Transportation can only be bought once
+                if (item.ItemType == "Transportation")
+                {
+                    dto.Quantity = 1;
+
+                    bool alreadyOwned = await _db.Inventories
+                        .AnyAsync(i => i.CharacterId == character.CharacterId && i.ItemId == item.ItemId);
+
+                    if (alreadyOwned)
+                    {
+                        response.IsSucess = false;
+                        response.Notification = "You already own this transportation item";
+                        return BadRequest(response);
+                    }
+                }
+
+                // 6. Enough gold?
+                int total = item.Price * dto.Quantity;
+                if (character.Gold < total)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Not enough gold";
+                    return BadRequest(response);
+                }
+
+                character.Gold -= total;
+
+                // 7. Inventory update
+                var inv = await _db.Inventories
+                    .FirstOrDefaultAsync(i => i.CharacterId == character.CharacterId && i.ItemId == item.ItemId);
+
+                if (inv == null)
+                {
+                    inv = new Inventory
+                    {
+                        CharacterId = character.CharacterId,
+                        ItemId = item.ItemId,
+                        Quantity = dto.Quantity,
+                        AcquireDate = DateTime.Now
+                    };
+                    _db.Inventories.Add(inv);
+                }
+                else
+                {
+                    inv.Quantity += dto.Quantity;
+                }
+
+                // 8. Create transaction log
+                var transaction = new Transaction
+                {
+                    CharacterId = character.CharacterId,
+                    ShopId = dto.ShopId,
+                    ItemId = dto.ItemId,
+                    Quantity = dto.Quantity,
+                    TotalPrice = total,
+                    PaymentMethod = "Gold",
+                    TransactionDate = DateTime.Now
+                };
+
+                _db.Transactions.Add(transaction);
+                await _db.SaveChangesAsync();
+
+                // 9. Response
+                response.IsSucess = true;
+                response.Notification = "Purchase completed";
+                response.Data = new
+                {
+                    CharacterName = character.CharacterName,
+                    ItemName = item.ItemName,
+                    Bought = dto.Quantity,
+                    RemainingGold = character.Gold,
+                    InventoryQuantity = inv.Quantity
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                response.IsSucess = false;
+                response.Notification = "Error";
+                response.Data = ex.Message;
+                return BadRequest(response);
+            }
+        }
+
+
+        // YÊU CẦU 6: Lấy tất cả giao dịch mua item và phương tiện của một người chơi cụ thể,
+        [HttpGet("PlayerAllTransactions/{playerId}")]
+        public async Task<IActionResult> GetPlayerAllTransactions(byte playerId)
+        {
+            try
+            {
+                var player = await _db.Players
+                    .Include(p => p.Characters)
+                    .FirstOrDefaultAsync(p => p.PlayerId == playerId);
+
+                if (player == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Player not found";
+                    _response.Data = null;
+                    return NotFound(_response);
+                }
+
+                var characterIds = player.Characters.Select(c => c.CharacterId).ToList();
+
+                var transactions = await _db.Transactions
+                    .Where(t => characterIds.Contains(t.CharacterId))
+                    .Include(t => t.Item)
+                    .Include(t => t.Character)
+                    .OrderByDescending(t => t.TransactionDate)
+                    .Select(t => new
+                    {
+                        t.TransactionId,
+                        t.TransactionDate,
+                        t.Quantity,
+                        t.TotalPrice,
+                        t.PaymentMethod,
+                        Character = new
+                        {
+                            t.Character.CharacterId,
+                            t.Character.CharacterName
+                        },
+                        Item = new
+                        {
+                            t.Item.ItemId,
+                            t.Item.ItemName,
+                            t.Item.ItemType,
+                            t.Item.Price
+                        }
+                    })
+                    .ToListAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Get all player transactions successfully";
+                _response.Data = new
+                {
+                    Player = new
+                    {
+                        player.PlayerId,
+                        player.PlayerName,
+                        player.Email
+                    },
+                    TotalCharacters = player.Characters.Count,
+                    TotalTransactions = transactions.Count,
+                    TotalSpent = transactions.Sum(t => t.TotalPrice),
+                    Transactions = transactions
+                };
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        // YÊU CẦU 9: Lấy danh sách các item được mua nhiều nhất
+        [HttpGet("TopPurchasedItems")]
+        public async Task<IActionResult> GetTopPurchasedItems([FromQuery] int top = 10)
+        {
+            try
+            {
+                var topItems = await _db.Transactions
+                    .GroupBy(t => new
+                    {
+                        t.ItemId,
+                        t.Item.ItemName,
+                        t.Item.ItemType,
+                        t.Item.Price
+                    })
+                    .Select(g => new
+                    {
+                        ItemId = g.Key.ItemId,
+                        ItemName = g.Key.ItemName,
+                        ItemType = g.Key.ItemType,
+                        ItemPrice = g.Key.Price,
+                        TotalQuantitySold = g.Sum(t => t.Quantity),
+                        TotalTransactions = g.Count(),
+                        TotalRevenue = g.Sum(t => t.TotalPrice),
+                        UniqueCustomers = g.Select(t => t.CharacterId).Distinct().Count()
+                    })
+                    .OrderByDescending(x => x.TotalQuantitySold)
+                    .Take(top)
+                    .ToListAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Get top purchased items successfully";
+                _response.Data = new
+                {
+                    Top = top,
+                    TotalItems = topItems.Count,
+                    Items = topItems
+                };
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        // YÊU CẦU 10: Lấy danh sách tất cả người chơi và số lần họ đã mua hàng
+        [HttpGet("PlayersWithPurchaseCount")]
+        public async Task<IActionResult> GetPlayersWithPurchaseCount()
+        {
+            try
+            {
+                var playersWithStats = await _db.Players
+                    .Select(p => new
+                    {
+                        p.PlayerId,
+                        p.PlayerName,
+                        p.Email,
+                        p.CreateDate,
+                        TotalCharacters = p.Characters.Count,
+                        TotalPurchases = p.Characters
+                            .SelectMany(c => c.Transactions)
+                            .Count(),
+                        TotalItemsBought = p.Characters
+                            .SelectMany(c => c.Transactions)
+                            .Sum(t => (int?)t.Quantity) ?? 0,
+                        TotalMoneySpent = p.Characters
+                            .SelectMany(c => c.Transactions)
+                            .Sum(t => (int?)t.TotalPrice) ?? 0,
+                        LastPurchaseDate = p.Characters
+                            .SelectMany(c => c.Transactions)
+                            .OrderByDescending(t => t.TransactionDate)
+                            .Select(t => (DateTime?)t.TransactionDate)
+                            .FirstOrDefault(),
+                        MostBoughtItem = p.Characters
+                            .SelectMany(c => c.Transactions)
+                            .GroupBy(t => t.Item.ItemName)
+                            .OrderByDescending(g => g.Sum(t => t.Quantity))
+                            .Select(g => g.Key)
+                            .FirstOrDefault()
+                    })
+                    .OrderByDescending(p => p.TotalPurchases)
+                    .ToListAsync();
+
+                var summary = new
+                {
+                    TotalPlayers = playersWithStats.Count,
+                    TotalPlayersWithPurchases = playersWithStats.Count(p => p.TotalPurchases > 0),
+                    TotalPlayersWithoutPurchases = playersWithStats.Count(p => p.TotalPurchases == 0),
+                    AveragePurchasesPerPlayer = playersWithStats.Any()
+                        ? playersWithStats.Average(p => p.TotalPurchases)
+                        : 0,
+                    TotalRevenue = playersWithStats.Sum(p => p.TotalMoneySpent)
+                };
+
+                _response.IsSucess = true;
+                _response.Notification = "Get all players with purchase statistics successfully";
+                _response.Data = new
+                {
+                    Summary = summary,
+                    Players = playersWithStats
+                };
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        [HttpGet("PlayerDetailedStats/{playerId}")]
+        public async Task<IActionResult> GetPlayerDetailedStats(byte playerId)
+        {
+            try
+            {
+                var player = await _db.Players
+                    .Include(p => p.Characters)
+                        .ThenInclude(c => c.Transactions)
+                            .ThenInclude(t => t.Item)
+                    .FirstOrDefaultAsync(p => p.PlayerId == playerId);
+
+                if (player == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Player not found";
+                    _response.Data = null;
+                    return NotFound(_response);
+                }
+
+                var allTransactions = player.Characters
+                    .SelectMany(c => c.Transactions)
+                    .ToList();
+
+                var characterStats = player.Characters.Select(c => new
+                {
+                    c.CharacterId,
+                    c.CharacterName,
+                    c.Experience,
+                    c.Gold,
+                    TotalPurchases = c.Transactions.Count,
+                    TotalSpent = c.Transactions.Sum(t => t.TotalPrice),
+                    MostBoughtItem = c.Transactions
+                        .GroupBy(t => t.Item.ItemName)
+                        .OrderByDescending(g => g.Sum(t => t.Quantity))
+                        .Select(g => g.Key)
+                        .FirstOrDefault()
+                }).ToList();
+
+                var itemTypeDistribution = allTransactions
+                    .GroupBy(t => t.Item.ItemType)
+                    .Select(g => new
+                    {
+                        ItemType = g.Key,
+                        Count = g.Count(),
+                        TotalSpent = g.Sum(t => t.TotalPrice)
+                    })
+                    .ToList();
+
+                var paymentMethodDistribution = allTransactions
+                    .GroupBy(t => t.PaymentMethod)
+                    .Select(g => new
+                    {
+                        PaymentMethod = g.Key,
+                        Count = g.Count(),
+                        TotalAmount = g.Sum(t => t.TotalPrice)
+                    })
+                    .ToList();
+
+                _response.IsSucess = true;
+                _response.Notification = "Get player detailed statistics successfully";
+                _response.Data = new
+                {
+                    Player = new
+                    {
+                        player.PlayerId,
+                        player.PlayerName,
+                        player.Email,
+                        player.CreateDate
+                    },
+                    OverallStats = new
+                    {
+                        TotalCharacters = player.Characters.Count,
+                        TotalPurchases = allTransactions.Count,
+                        TotalSpent = allTransactions.Sum(t => t.TotalPrice),
+                        TotalItemsBought = allTransactions.Sum(t => t.Quantity),
+                        FirstPurchase = allTransactions.OrderBy(t => t.TransactionDate).FirstOrDefault()?.TransactionDate,
+                        LastPurchase = allTransactions.OrderByDescending(t => t.TransactionDate).FirstOrDefault()?.TransactionDate
+                    },
+                    Characters = characterStats,
+                    ItemTypeDistribution = itemTypeDistribution,
+                    PaymentMethodDistribution = paymentMethodDistribution,
+                    RecentTransactions = allTransactions
+                        .OrderByDescending(t => t.TransactionDate)
+                        .Take(5)
+                        .Select(t => new
+                        {
+                            t.TransactionId,
+                            t.TransactionDate,
+                            CharacterName = t.Character.CharacterName,
+                            ItemName = t.Item.ItemName,
+                            t.Quantity,
+                            t.TotalPrice,
+                            t.PaymentMethod
+                        })
+                        .ToList()
+                };
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
     }
 }

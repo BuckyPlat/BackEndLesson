@@ -30,4 +30,6 @@ public partial class Character
     public virtual ICollection<Inventory> Inventories { get; set; } = new List<Inventory>();
 
     public virtual Player Player { get; set; } = null!;
+
+    public virtual ICollection<Transaction> Transactions { get; set; } = new List<Transaction>(); // 
 }
