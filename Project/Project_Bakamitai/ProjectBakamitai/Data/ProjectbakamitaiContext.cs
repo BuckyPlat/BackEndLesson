@@ -32,9 +32,13 @@ public partial class ProjectbakamitaiContext : DbContext
 
     public virtual DbSet<Shop> Shops { get; set; }
 
+    public virtual DbSet<ShopItem> ShopItems { get; set; }
+
+    public virtual DbSet<Transaction> Transactions { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-        => optionsBuilder.UseSqlServer("Data Source=DESKTOP-28HSMTC\\SQLEXPRESS;Initial Catalog=projectbakamitai;Integrated Security=True;Connect Timeout=30;Encrypt=True;Trust Server Certificate=True;Application Intent=ReadWrite;Multi Subnet Failover=False");
+        => optionsBuilder.UseSqlServer("Data Source=DESKTOP-I39HLP5\\SQLEXPRESS;Initial Catalog=projectbakamitai;Integrated Security=True;Connect Timeout=30;Encrypt=True;Trust Server Certificate=True;Application Intent=ReadWrite;Multi Subnet Failover=False");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,26 +182,28 @@ public partial class ProjectbakamitaiContext : DbContext
                 .ValueGeneratedOnAdd()
                 .HasColumnName("ShopID");
             entity.Property(e => e.ShopName).HasMaxLength(40);
-
-            entity.HasMany(d => d.Items).WithMany(p => p.Shops)
-                .UsingEntity<Dictionary<string, object>>(
-                    "ShopItem",
-                    r => r.HasOne<Item>().WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.ClientSetNull)
-                        .HasConstraintName("FK__ShopItem__ItemID__6477ECF3"),
-                    l => l.HasOne<Shop>().WithMany()
-                        .HasForeignKey("ShopId")
-                        .OnDelete(DeleteBehavior.ClientSetNull)
-                        .HasConstraintName("FK__ShopItem__ShopID__6383C8BA"),
-                    j =>
-                    {
-                        j.HasKey("ShopId", "ItemId").HasName("PK__ShopItem__C0E2BE17DB112ECB");
-                        j.ToTable("ShopItem");
-                        j.IndexerProperty<byte>("ShopId").HasColumnName("ShopID");
-                        j.IndexerProperty<byte>("ItemId").HasColumnName("ItemID");
-                    });
         });
+        modelBuilder.Entity<ShopItem>(entity =>
+        {
+            entity.HasKey(si => new { si.ShopId, si.ItemId });
+
+            entity.ToTable("ShopItem");
+
+            entity.Property(si => si.ShopId).HasColumnName("ShopID");
+            entity.Property(si => si.ItemId).HasColumnName("ItemID");
+
+            entity.HasOne(si => si.Shop)
+                .WithMany(s => s.ShopItems)
+                .HasForeignKey(si => si.ShopId)
+                .OnDelete(DeleteBehavior.ClientSetNull);
+
+            entity.HasOne(si => si.Item)
+                .WithMany(i => i.ShopItems)
+                .HasForeignKey(si => si.ItemId)
+                .OnDelete(DeleteBehavior.ClientSetNull);
+        });
+
+
 
         OnModelCreatingPartial(modelBuilder);
     }

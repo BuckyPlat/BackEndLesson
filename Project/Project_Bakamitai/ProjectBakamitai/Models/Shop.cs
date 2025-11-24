@@ -9,5 +9,5 @@ public partial class Shop
 
     public string ShopName { get; set; } = null!;
 
-    public virtual ICollection<Item> Items { get; set; } = new List<Item>();
+    public virtual ICollection<ShopItem> ShopItems { get; set; } = new List<ShopItem>();
 }

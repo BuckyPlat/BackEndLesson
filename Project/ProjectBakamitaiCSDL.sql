@@ -80,6 +80,22 @@ foreign key (CharacterID) references Characters(CharacterID),
 foreign key (ItemID) references Items(ItemID)
 );
 
+CREATE TABLE Transactions (
+TransactionID INT IDENTITY(1,1) PRIMARY KEY,
+CharacterID TINYINT NOT NULL,
+ShopID TINYINT NOT NULL,
+ItemID TINYINT NOT NULL,
+Quantity INT NOT NULL DEFAULT 1,
+TotalPrice INT NOT NULL,
+PaymentMethod NVARCHAR(20) NOT NULL,
+TransactionDate DATETIME DEFAULT GETDATE(),
+
+FOREIGN KEY (CharacterID) REFERENCES Characters(CharacterID),
+FOREIGN KEY (ShopID) REFERENCES Shop(ShopID),
+FOREIGN KEY (ItemID) REFERENCES Items(ItemID)
+);
+
+
 SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'Players';
@@ -131,7 +147,36 @@ insert into Missions(Title,Description,EXPReward,GoldReward) values
 ('Gather_wood','Chop down tree',40,0),
 ('Defeat_boss','Slain the 1000 years old wolves',450,60)
 
+-- 1: Transportation Shop
+insert into ShopItem (ShopID, ItemID)
+select 1, ItemID from Items where ItemType = 'Transportation';
+
+-- 2: Weapon Shop
+insert into ShopItem (ShopID, ItemID)
+select 2, ItemID from Items where ItemType = 'Weapon';
+
+-- 3: Tool Shop
+insert into ShopItem (ShopID, ItemID)
+select 3, ItemID from Items where ItemType = 'Tool';
+
+-- 4: Resource Shop
+insert into ShopItem (ShopID, ItemID)
+select 4, ItemID from Items where ItemType = 'Resource';
+
+
 select * from Players
 select * from Missions
 select * from Shop
 select * from GameMode
+
+SELECT 
+    si.ShopID,
+    s.ShopName,
+    si.ItemID,
+    i.ItemName,
+    i.ItemType,
+    i.Price
+FROM ShopItem si
+JOIN Shop s ON si.ShopID = s.ShopID
+JOIN Items i ON si.ItemID = i.ItemID;
+

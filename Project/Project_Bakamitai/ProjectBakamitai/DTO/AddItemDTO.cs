@@ -1,10 +1,19 @@
-﻿namespace ProjectBakamitai.DTO
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace ProjectBakamitai.DTO
 {
     public class AddItemDTO
     {
-        public string ItemName { get; set; } = null!;
-        public string ItemType { get; set; } = null!;
+        [Required]
+        [MaxLength(50)]
+        public string ItemName { get; set; }
+
+        [Required]
+        [MaxLength(50)]
+        public string ItemType { get; set; }
+
+        [Range(1, int.MaxValue)]
         public int Price { get; set; }
-        public int? ExpValue { get; set; }
     }
+
 }

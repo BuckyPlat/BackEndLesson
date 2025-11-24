@@ -25,6 +25,15 @@ namespace ProjectBakamitai.Controllers.API
             }
         }
 
+        private static readonly Dictionary<string, byte> TypeToShop = new()
+        {
+            { "Transportation", 1 },
+            { "Weapon", 2 },
+            { "Tool", 3 },
+            { "Resource", 4 }
+        };
+
+
         public BakamitaiController(ProjectbakamitaiContext db)
         {
             _db = db;
@@ -129,7 +138,20 @@ namespace ProjectBakamitai.Controllers.API
         {
             try
             {
-                var items = await _db.Items.ToListAsync();
+                var items = await _db.Items
+                    .Include(i => i.ShopItems)
+                    .ThenInclude(si => si.Shop)
+                    .Select(i => new
+                    {
+                        ItemId = i.ItemId,
+                        ItemName = i.ItemName,
+                        ItemType = i.ItemType,
+                        Price = i.Price,
+                        Shops = i.ShopItems
+                            .Select(si => si.Shop.ShopName)
+                            .ToList()
+                    })
+                    .ToListAsync();
                 _response.IsSucess = true;
                 _response.Notification = "Gather Data successful";
                 _response.Data = items;
@@ -151,6 +173,18 @@ namespace ProjectBakamitai.Controllers.API
             {
                 var items = await _db.Items
                     .Where(i => i.ItemType == type)
+                    .Include(i => i.ShopItems)
+                    .ThenInclude(si => si.Shop)
+                    .Select(i => new
+                    {
+                        ItemId = i.ItemId,
+                        ItemName = i.ItemName,
+                        ItemType = i.ItemType,
+                        Price = i.Price,
+                        Shops = i.ShopItems
+                            .Select(si => si.Shop.ShopName)
+                            .ToList()
+                    })
                     .ToListAsync();
 
                 _response.IsSucess = true;
@@ -317,13 +351,25 @@ namespace ProjectBakamitai.Controllers.API
             try
             {
                 var items = await _db.Items
-                    .Where(i => i.ItemName.Contains("kim cương") && i.ExpValue < 500)
-                    .OrderBy(i => i.ExpValue)
+                    .Where(i => i.ItemName.Contains("Diamond") && i.Price < 500)
+                    .Include(i => i.ShopItems)
+                    .ThenInclude(si => si.Shop)
+                    .Select(i => new
+                    {
+                        ItemId = i.ItemId,
+                        ItemName = i.ItemName,
+                        ItemType = i.ItemType,
+                        Price = i.Price,
+                        Shops = i.ShopItems
+                            .Select(si => si.Shop.ShopName)
+                            .ToList()
+                    })
                     .ToListAsync();
 
                 _response.IsSucess = true;
                 _response.Notification = "Get diamond items successfully";
                 _response.Data = items;
+
                 return Ok(_response);
             }
             catch (Exception ex)
@@ -335,7 +381,8 @@ namespace ProjectBakamitai.Controllers.API
             }
         }
 
-        // YÊU CẦU 4: Lấy tất cả giao dịch của character, sắp xếp theo thời gian
+
+
         [HttpGet("Transactions/{characterId}")]
         public async Task<IActionResult> GetCharacterTransactions(byte characterId)
         {
@@ -344,15 +391,12 @@ namespace ProjectBakamitai.Controllers.API
                 var character = await _db.Characters
                     .Include(c => c.Player)
                     .FirstOrDefaultAsync(c => c.CharacterId == characterId);
-
                 if (character == null)
                 {
                     _response.IsSucess = false;
                     _response.Notification = "Character not found";
-                    _response.Data = null;
                     return NotFound(_response);
                 }
-
                 var transactions = await _db.Transactions
                     .Where(t => t.CharacterId == characterId)
                     .Include(t => t.Item)
@@ -373,7 +417,6 @@ namespace ProjectBakamitai.Controllers.API
                         }
                     })
                     .ToListAsync();
-
                 _response.IsSucess = true;
                 _response.Notification = "Get transactions successfully";
                 _response.Data = new
@@ -388,6 +431,7 @@ namespace ProjectBakamitai.Controllers.API
                     TotalSpent = transactions.Sum(t => t.TotalPrice),
                     Transactions = transactions
                 };
+
                 return Ok(_response);
             }
             catch (Exception ex)
@@ -398,85 +442,138 @@ namespace ProjectBakamitai.Controllers.API
                 return BadRequest(_response);
             }
         }
+
 
         // YÊU CẦU 5: Thêm item mới
         [HttpPost("AddItem")]
         public async Task<IActionResult> AddItem([FromBody] AddItemDTO itemDTO)
         {
+            var response = new ResponseApi();
+
             try
             {
+                // Validate
                 if (string.IsNullOrWhiteSpace(itemDTO.ItemName))
                 {
-                    _response.IsSucess = false;
-                    _response.Notification = "Item name is required";
-                    _response.Data = null;
-                    return BadRequest(_response);
+                    response.IsSucess = false;
+                    response.Notification = "Item name is required";
+                    return BadRequest(response);
                 }
 
+                if (string.IsNullOrWhiteSpace(itemDTO.ItemType))
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Item type is required";
+                    return BadRequest(response);
+                }
+
+                if (itemDTO.Price <= 0)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Price must be greater than zero";
+                    return BadRequest(response);
+                }
+
+                // ✅ Mapping ItemType → ShopID
+                var typeToShop = new Dictionary<string, byte>
+        {
+            { "Transportation", 1 },
+            { "Weapon", 2 },
+            { "Tool", 3 },
+            { "Resource", 4 }
+        };
+
+                // Step 1 — Tạo Item mới
                 var item = new Item
                 {
                     ItemName = itemDTO.ItemName,
                     ItemType = itemDTO.ItemType,
-                    Price = itemDTO.Price,
-                    ExpValue = itemDTO.ExpValue
+                    Price = itemDTO.Price
                 };
 
                 _db.Items.Add(item);
-                await _db.SaveChangesAsync();
+                await _db.SaveChangesAsync(); // Lấy ItemId tự tăng
 
-                _response.IsSucess = true;
-                _response.Notification = "Add item successfully";
-                _response.Data = item;
-                return Ok(_response);
+                // Step 2 — Auto-gán ShopItem theo ItemType
+                if (typeToShop.TryGetValue(item.ItemType, out byte shopId))
+                {
+                    var shopItem = new ShopItem
+                    {
+                        ShopId = shopId,
+                        ItemId = item.ItemId
+                    };
+
+                    _db.ShopItems.Add(shopItem);
+                    await _db.SaveChangesAsync();
+                }
+
+                // Step 3 — Response
+                response.IsSucess = true;
+                response.Notification = "Item added successfully";
+                response.Data = new
+                {
+                    item.ItemId,
+                    item.ItemName,
+                    item.ItemType,
+                    item.Price,
+                    AssignedShop = typeToShop.ContainsKey(item.ItemType)
+                                    ? (byte?)typeToShop[item.ItemType]
+                                    : null
+                };
+
+
+                return Ok(response);
             }
             catch (Exception ex)
             {
-                _response.IsSucess = false;
-                _response.Notification = "Error";
-                _response.Data = ex.Message;
-                return BadRequest(_response);
+                response.IsSucess = false;
+                response.Notification = "Error";
+                response.Data = ex.Message;
+                return BadRequest(response);
             }
         }
 
+
+
         // YÊU CẦU 6: Cập nhật mật khẩu người chơi
-        [HttpPut("UpdatePassword/{playerId}")]
-        public async Task<IActionResult> UpdatePassword(byte playerId, [FromBody] UpdatePasswordDTO dto)
+        [HttpPut("UpdatePassword")]
+        public async Task<IActionResult> UpdatePasswordByEmail([FromBody] UpdatePasswordDTO updatepasswordDTO)
         {
             try
             {
-                var player = await _db.Players.FindAsync(playerId);
+                // 1. Tìm player theo email
+                var player = await _db.Players
+                    .FirstOrDefaultAsync(p => p.Email == updatepasswordDTO.Email);
+
                 if (player == null)
                 {
                     _response.IsSucess = false;
-                    _response.Notification = "Player not found";
-                    _response.Data = null;
+                    _response.Notification = "Email not found";
                     return NotFound(_response);
                 }
 
-                // Kiểm tra mật khẩu cũ nếu có
-                if (!string.IsNullOrWhiteSpace(dto.OldPassword))
+                // 2. Kiểm tra mật khẩu cũ
+                var oldHash = HashPasswordToBytes(updatepasswordDTO.OldPassword);
+
+                if (!player.PasswordHash.SequenceEqual(oldHash))
                 {
-                    var oldPasswordHash = HashPasswordToBytes(dto.OldPassword);
-                    if (!player.PasswordHash.SequenceEqual(oldPasswordHash))
-                    {
-                        _response.IsSucess = false;
-                        _response.Notification = "Old password is incorrect";
-                        _response.Data = null;
-                        return BadRequest(_response);
-                    }
+                    _response.IsSucess = false;
+                    _response.Notification = "Old password is incorrect";
+                    return BadRequest(_response);
                 }
 
-                // Cập nhật mật khẩu mới
-                player.PasswordHash = HashPasswordToBytes(dto.NewPassword);
+                // 3. Cập nhật mật khẩu mới
+                player.PasswordHash = HashPasswordToBytes(updatepasswordDTO.NewPassword);
                 await _db.SaveChangesAsync();
 
                 _response.IsSucess = true;
-                _response.Notification = "Update password successfully";
+                _response.Notification = "Password updated successfully";
                 _response.Data = new
                 {
                     player.PlayerId,
                     player.PlayerName
                 };
+
                 return Ok(_response);
             }
             catch (Exception ex)
@@ -487,7 +584,6 @@ namespace ProjectBakamitai.Controllers.API
                 return BadRequest(_response);
             }
         }
-
         // YÊU CẦU 7: Lấy danh sách items được mua nhiều nhất
         [HttpGet("MostPurchasedItems")]
         public async Task<IActionResult> GetMostPurchasedItems([FromQuery] int top = 10)
@@ -522,5 +618,46 @@ namespace ProjectBakamitai.Controllers.API
                 return BadRequest(_response);
             }
         }
+
+        [HttpDelete("DeleteItem/{id}")]
+        public async Task<IActionResult> DeleteItem(byte id)
+        {
+            var response = new ResponseApi();
+
+            try
+            {
+                var item = await _db.Items
+                    .Include(i => i.ShopItems)
+                    .FirstOrDefaultAsync(i => i.ItemId == id);
+                if (item == null)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Item not found";
+                    return NotFound(response);
+                }
+                if (item.ShopItems != null && item.ShopItems.Any())
+                {
+                    _db.ShopItems.RemoveRange(item.ShopItems);
+                }
+                _db.Items.Remove(item);
+                await _db.SaveChangesAsync();
+                response.IsSucess = true;
+                response.Notification = "Item deleted successfully";
+                response.Data = new
+                {
+                    DeletedItemId = id
+                };
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                response.IsSucess = false;
+                response.Notification = "Error";
+                response.Data = ex.Message;
+                return BadRequest(response);
+            }
+        }
+
+
     }
 }
