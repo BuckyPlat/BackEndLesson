@@ -237,7 +237,7 @@ namespace ProjectBakamitai.Controllers.API
             {
                 var playername = await _db.Players
                     .FirstOrDefaultAsync(p => p.PlayerName.ToLower() == PlayerName.ToLower());
-                if(playername == null)
+                if (playername == null)
                 {
                     _response.IsSucess = false;
                     _response.Notification = "Player not found";
@@ -300,6 +300,218 @@ namespace ProjectBakamitai.Controllers.API
                 _response.IsSucess = true;
                 _response.Notification = "Gather Data successful";
                 _response.Data = characters;
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+        // YÊU CẦU 3: Lấy items có tên chứa "kim cương" và ExpValue < 500
+        [HttpGet("DiamondItems")]
+        public async Task<IActionResult> GetDiamondItems()
+        {
+            try
+            {
+                var items = await _db.Items
+                    .Where(i => i.ItemName.Contains("kim cương") && i.ExpValue < 500)
+                    .OrderBy(i => i.ExpValue)
+                    .ToListAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Get diamond items successfully";
+                _response.Data = items;
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        // YÊU CẦU 4: Lấy tất cả giao dịch của character, sắp xếp theo thời gian
+        [HttpGet("Transactions/{characterId}")]
+        public async Task<IActionResult> GetCharacterTransactions(byte characterId)
+        {
+            try
+            {
+                var character = await _db.Characters
+                    .Include(c => c.Player)
+                    .FirstOrDefaultAsync(c => c.CharacterId == characterId);
+
+                if (character == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Character not found";
+                    _response.Data = null;
+                    return NotFound(_response);
+                }
+
+                var transactions = await _db.Transactions
+                    .Where(t => t.CharacterId == characterId)
+                    .Include(t => t.Item)
+                    .OrderByDescending(t => t.TransactionDate)
+                    .Select(t => new
+                    {
+                        t.TransactionId,
+                        t.TransactionDate,
+                        t.Quantity,
+                        t.TotalPrice,
+                        t.PaymentMethod,
+                        Item = new
+                        {
+                            t.Item.ItemId,
+                            t.Item.ItemName,
+                            t.Item.ItemType,
+                            t.Item.Price
+                        }
+                    })
+                    .ToListAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Get transactions successfully";
+                _response.Data = new
+                {
+                    Character = new
+                    {
+                        character.CharacterId,
+                        character.CharacterName,
+                        PlayerName = character.Player.PlayerName
+                    },
+                    TotalTransactions = transactions.Count,
+                    TotalSpent = transactions.Sum(t => t.TotalPrice),
+                    Transactions = transactions
+                };
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        // YÊU CẦU 5: Thêm item mới
+        [HttpPost("AddItem")]
+        public async Task<IActionResult> AddItem([FromBody] AddItemDTO itemDTO)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(itemDTO.ItemName))
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Item name is required";
+                    _response.Data = null;
+                    return BadRequest(_response);
+                }
+
+                var item = new Item
+                {
+                    ItemName = itemDTO.ItemName,
+                    ItemType = itemDTO.ItemType,
+                    Price = itemDTO.Price,
+                    ExpValue = itemDTO.ExpValue
+                };
+
+                _db.Items.Add(item);
+                await _db.SaveChangesAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Add item successfully";
+                _response.Data = item;
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        // YÊU CẦU 6: Cập nhật mật khẩu người chơi
+        [HttpPut("UpdatePassword/{playerId}")]
+        public async Task<IActionResult> UpdatePassword(byte playerId, [FromBody] UpdatePasswordDTO dto)
+        {
+            try
+            {
+                var player = await _db.Players.FindAsync(playerId);
+                if (player == null)
+                {
+                    _response.IsSucess = false;
+                    _response.Notification = "Player not found";
+                    _response.Data = null;
+                    return NotFound(_response);
+                }
+
+                // Kiểm tra mật khẩu cũ nếu có
+                if (!string.IsNullOrWhiteSpace(dto.OldPassword))
+                {
+                    var oldPasswordHash = HashPasswordToBytes(dto.OldPassword);
+                    if (!player.PasswordHash.SequenceEqual(oldPasswordHash))
+                    {
+                        _response.IsSucess = false;
+                        _response.Notification = "Old password is incorrect";
+                        _response.Data = null;
+                        return BadRequest(_response);
+                    }
+                }
+
+                // Cập nhật mật khẩu mới
+                player.PasswordHash = HashPasswordToBytes(dto.NewPassword);
+                await _db.SaveChangesAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Update password successfully";
+                _response.Data = new
+                {
+                    player.PlayerId,
+                    player.PlayerName
+                };
+                return Ok(_response);
+            }
+            catch (Exception ex)
+            {
+                _response.IsSucess = false;
+                _response.Notification = "Error";
+                _response.Data = ex.Message;
+                return BadRequest(_response);
+            }
+        }
+
+        // YÊU CẦU 7: Lấy danh sách items được mua nhiều nhất
+        [HttpGet("MostPurchasedItems")]
+        public async Task<IActionResult> GetMostPurchasedItems([FromQuery] int top = 10)
+        {
+            try
+            {
+                var result = await _db.Transactions
+                    .GroupBy(t => new { t.ItemId, t.Item.ItemName, t.Item.ItemType })
+                    .Select(g => new
+                    {
+                        ItemId = g.Key.ItemId,
+                        ItemName = g.Key.ItemName,
+                        ItemType = g.Key.ItemType,
+                        TotalQuantity = g.Sum(t => t.Quantity),
+                        TotalTransactions = g.Count(),
+                        TotalRevenue = g.Sum(t => t.TotalPrice)
+                    })
+                    .OrderByDescending(x => x.TotalQuantity)
+                    .Take(top)
+                    .ToListAsync();
+
+                _response.IsSucess = true;
+                _response.Notification = "Get most purchased items successfully";
+                _response.Data = result;
                 return Ok(_response);
             }
             catch (Exception ex)
