@@ -31,10 +31,5 @@ public partial class Character
 
     public virtual Player Player { get; set; } = null!;
 
-<<<<<<< HEAD
     public virtual ICollection<Transaction> Transactions { get; set; } = new List<Transaction>(); // 
-=======
-    public virtual ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
-
->>>>>>> 9cc237ad5a842b88108060c60b593455f630006a
 }
