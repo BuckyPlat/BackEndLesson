@@ -351,7 +351,7 @@ namespace ProjectBakamitai.Controllers.API
             try
             {
                 var items = await _db.Items
-                    .Where(i => i.ItemName.Contains("Diamond") && i.Price < 500)
+                    .Where(i => i.Price < 200)
                     .Include(i => i.ShopItems)
                     .ThenInclude(si => si.Shop)
                     .Select(i => new
@@ -443,16 +443,13 @@ namespace ProjectBakamitai.Controllers.API
             }
         }
 
-
         // YÊU CẦU 5: Thêm item mới
         [HttpPost("AddItem")]
         public async Task<IActionResult> AddItem([FromBody] AddItemDTO itemDTO)
         {
             var response = new ResponseApi();
-
             try
             {
-                // Validate
                 if (string.IsNullOrWhiteSpace(itemDTO.ItemName))
                 {
                     response.IsSucess = false;
@@ -473,17 +470,14 @@ namespace ProjectBakamitai.Controllers.API
                     response.Notification = "Price must be greater than zero";
                     return BadRequest(response);
                 }
-
-                // ✅ Mapping ItemType → ShopID
                 var typeToShop = new Dictionary<string, byte>
-        {
-            { "Transportation", 1 },
-            { "Weapon", 2 },
-            { "Tool", 3 },
-            { "Resource", 4 }
-        };
+                {
+                    { "Transportation", 1 },
+                    { "Weapon", 2 },
+                    { "Tool", 3 },
+                    { "Resource", 4 }
+                };
 
-                // Step 1 — Tạo Item mới
                 var item = new Item
                 {
                     ItemName = itemDTO.ItemName,
@@ -492,9 +486,7 @@ namespace ProjectBakamitai.Controllers.API
                 };
 
                 _db.Items.Add(item);
-                await _db.SaveChangesAsync(); // Lấy ItemId tự tăng
-
-                // Step 2 — Auto-gán ShopItem theo ItemType
+                await _db.SaveChangesAsync();
                 if (typeToShop.TryGetValue(item.ItemType, out byte shopId))
                 {
                     var shopItem = new ShopItem
@@ -507,7 +499,6 @@ namespace ProjectBakamitai.Controllers.API
                     await _db.SaveChangesAsync();
                 }
 
-                // Step 3 — Response
                 response.IsSucess = true;
                 response.Notification = "Item added successfully";
                 response.Data = new
@@ -535,13 +526,12 @@ namespace ProjectBakamitai.Controllers.API
 
 
 
-        // YÊU CẦU 6: Cập nhật mật khẩu người chơi
+        // YÊU CẦU 8: Cập nhật mật khẩu người chơi
         [HttpPut("UpdatePassword")]
         public async Task<IActionResult> UpdatePasswordByEmail([FromBody] UpdatePasswordDTO updatepasswordDTO)
         {
             try
             {
-                // 1. Tìm player theo email
                 var player = await _db.Players
                     .FirstOrDefaultAsync(p => p.Email == updatepasswordDTO.Email);
 
@@ -552,7 +542,6 @@ namespace ProjectBakamitai.Controllers.API
                     return NotFound(_response);
                 }
 
-                // 2. Kiểm tra mật khẩu cũ
                 var oldHash = HashPasswordToBytes(updatepasswordDTO.OldPassword);
 
                 if (!player.PasswordHash.SequenceEqual(oldHash))
@@ -562,7 +551,6 @@ namespace ProjectBakamitai.Controllers.API
                     return BadRequest(_response);
                 }
 
-                // 3. Cập nhật mật khẩu mới
                 player.PasswordHash = HashPasswordToBytes(updatepasswordDTO.NewPassword);
                 await _db.SaveChangesAsync();
 
@@ -657,7 +645,142 @@ namespace ProjectBakamitai.Controllers.API
                 return BadRequest(response);
             }
         }
-        // YÊU CẦU 6: Lấy tất cả giao dịch mua item và phương tiện của một người chơi cụ thể
+
+        [HttpPost("Buy")]
+        public async Task<IActionResult> BuyItem([FromBody] BuyItemDTO dto)
+        {
+            var response = new ResponseApi();
+
+            try
+            {
+                // 1. Check Player
+                var player = await _db.Players
+                    .Include(p => p.Characters)
+                    .FirstOrDefaultAsync(p => p.PlayerId == dto.PlayerId);
+
+                if (player == null)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Player not found";
+                    return NotFound(response);
+                }
+
+                // 2. Get Character (only 1)
+                var character = player.Characters.FirstOrDefault();
+                if (character == null)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Player has no character";
+                    return BadRequest(response);
+                }
+
+                // 3. Check Item
+                var item = await _db.Items.FirstOrDefaultAsync(i => i.ItemId == dto.ItemId);
+                if (item == null)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Item not found";
+                    return BadRequest(response);
+                }
+
+                // 4. Check shop sells item
+                bool isSold = await _db.ShopItems
+                    .AnyAsync(si => si.ShopId == dto.ShopId && si.ItemId == dto.ItemId);
+
+                if (!isSold)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Shop does not sell this item";
+                    return BadRequest(response);
+                }
+
+                // 5. Transportation can only be bought once
+                if (item.ItemType == "Transportation")
+                {
+                    dto.Quantity = 1;
+
+                    bool alreadyOwned = await _db.Inventories
+                        .AnyAsync(i => i.CharacterId == character.CharacterId && i.ItemId == item.ItemId);
+
+                    if (alreadyOwned)
+                    {
+                        response.IsSucess = false;
+                        response.Notification = "You already own this transportation item";
+                        return BadRequest(response);
+                    }
+                }
+
+                // 6. Enough gold?
+                int total = item.Price * dto.Quantity;
+                if (character.Gold < total)
+                {
+                    response.IsSucess = false;
+                    response.Notification = "Not enough gold";
+                    return BadRequest(response);
+                }
+
+                character.Gold -= total;
+
+                // 7. Inventory update
+                var inv = await _db.Inventories
+                    .FirstOrDefaultAsync(i => i.CharacterId == character.CharacterId && i.ItemId == item.ItemId);
+
+                if (inv == null)
+                {
+                    inv = new Inventory
+                    {
+                        CharacterId = character.CharacterId,
+                        ItemId = item.ItemId,
+                        Quantity = dto.Quantity,
+                        AcquireDate = DateTime.Now
+                    };
+                    _db.Inventories.Add(inv);
+                }
+                else
+                {
+                    inv.Quantity += dto.Quantity;
+                }
+
+                // 8. Create transaction log
+                var transaction = new Transaction
+                {
+                    CharacterId = character.CharacterId,
+                    ShopId = dto.ShopId,
+                    ItemId = dto.ItemId,
+                    Quantity = dto.Quantity,
+                    TotalPrice = total,
+                    PaymentMethod = "Gold",
+                    TransactionDate = DateTime.Now
+                };
+
+                _db.Transactions.Add(transaction);
+                await _db.SaveChangesAsync();
+
+                // 9. Response
+                response.IsSucess = true;
+                response.Notification = "Purchase completed";
+                response.Data = new
+                {
+                    CharacterName = character.CharacterName,
+                    ItemName = item.ItemName,
+                    Bought = dto.Quantity,
+                    RemainingGold = character.Gold,
+                    InventoryQuantity = inv.Quantity
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                response.IsSucess = false;
+                response.Notification = "Error";
+                response.Data = ex.Message;
+                return BadRequest(response);
+            }
+        }
+
+
+        // YÊU CẦU 6: Lấy tất cả giao dịch mua item và phương tiện của một người chơi cụ thể,
         [HttpGet("PlayerAllTransactions/{playerId}")]
         public async Task<IActionResult> GetPlayerAllTransactions(byte playerId)
         {
@@ -951,6 +1074,5 @@ namespace ProjectBakamitai.Controllers.API
                 return BadRequest(_response);
             }
         }
-
     }
 }

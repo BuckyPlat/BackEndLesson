@@ -31,6 +31,5 @@ public partial class Character
 
     public virtual Player Player { get; set; } = null!;
 
-    public virtual ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
-
+    public virtual ICollection<Transaction> Transactions { get; set; } = new List<Transaction>(); // 
 }

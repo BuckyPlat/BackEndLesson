@@ -180,3 +180,5 @@ FROM ShopItem si
 JOIN Shop s ON si.ShopID = s.ShopID
 JOIN Items i ON si.ItemID = i.ItemID;
 
+ALTER TABLE Items
+ADD ItemImage NVARCHAR(MAX) NULL;
