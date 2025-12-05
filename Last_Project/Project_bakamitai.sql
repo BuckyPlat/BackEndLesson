@@ -7,7 +7,7 @@ UserId int primary key identity(1,1),
 UserName Nvarchar(50) not null,
 Email varchar(80) not null unique,
 PasswordHash varbinary(32) not null,
-CreateAt Datetime default getdate()
+CreateAt Datetime default getutcdate()
 )
 
 create table PlayerProfile(
@@ -68,3 +68,20 @@ CreateAt datetime default getdate(),
 foreign key (UserId) references Users(UserId),
 foreign key (ItemId) references Items(ItemId)
 )
+
+SELECT 
+    name 
+FROM sys.default_constraints 
+WHERE parent_object_id = OBJECT_ID('Users')
+  AND parent_column_id = (
+        SELECT column_id FROM sys.columns 
+        WHERE name = 'CreateAt' AND object_id = OBJECT_ID('Users')
+  );
+
+ALTER TABLE Users
+DROP CONSTRAINT DF__Users__CreateAt__4AB81AF0;
+
+ALTER TABLE Users
+ADD CONSTRAINT DF_Users_CreateAt_UTC
+DEFAULT (GETUTCDATE()) FOR CreateAt;
+
