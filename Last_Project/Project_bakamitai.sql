@@ -68,4 +68,3 @@ CreateAt datetime default getdate(),
 foreign key (UserId) references Users(UserId),
 foreign key (ItemId) references Items(ItemId)
 )
-
