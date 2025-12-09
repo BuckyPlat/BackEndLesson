@@ -227,6 +227,59 @@ namespace Projectbakamitai.Controllers.API
             }
         }
 
+        [HttpDelete("delete/{userId}")]
+        public async Task<IActionResult> DeleteUser(int userId)
+        {
+            try
+            {
+                var user = await _context.Users.FindAsync(userId);
+                if (user == null)
+                {
+                    return NotFound(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "User not found"
+                    });
+                }
+
+                // Xóa profile
+                var profile = await _context.PlayerProfiles
+                    .FirstOrDefaultAsync(p => p.UserId == userId);
+
+                if (profile != null)
+                    _context.PlayerProfiles.Remove(profile);
+
+                // Xóa inventory
+                var inventoryItems = _context.Inventories
+                    .Where(i => i.UserId == userId);
+                _context.Inventories.RemoveRange(inventoryItems);
+
+                // Xóa giao dịch
+                var transactions = _context.Transactions
+                    .Where(t => t.UserId == userId);
+                _context.Transactions.RemoveRange(transactions);
+
+                // Cuối cùng xóa user
+                _context.Users.Remove(user);
+                await _context.SaveChangesAsync();
+
+                return Ok(new ResponseAPI
+                {
+                    IsSuccess = true,
+                    Notification = "User and related data deleted successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ResponseAPI
+                {
+                    IsSuccess = false,
+                    Notification = "Error",
+                    Data = ex.InnerException?.Message ?? ex.Message
+                });
+            }
+        }
+
         [HttpPut("profile/{userId}")]
         public async Task<IActionResult> UpdateProfile(int userId, [FromForm] UpdateProfileDTO profileDTO)
         {
@@ -402,7 +455,6 @@ namespace Projectbakamitai.Controllers.API
             }
         }
 
-
         [HttpGet("ShopProduct")]
         public async Task<IActionResult> GetShopItems([FromQuery] bool onlyAvailable = true)
         {
@@ -450,6 +502,159 @@ namespace Projectbakamitai.Controllers.API
             }
         }
 
+        [HttpPost("buy")]
+        public async Task<IActionResult> BuyItem([FromBody] BuyItemDTO dto)
+        {
+            try
+            {
+                var user = _context.PlayerProfiles.FirstOrDefault(p => p.UserId == dto.UserId);
+                var item = _context.Items.FirstOrDefault(i => i.ItemId == dto.ItemId);
+
+                if (user == null || item == null)
+                {
+                    return BadRequest(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "Invalid user or item",
+                        Data = null
+                    });
+                }
+
+                if (user.Gold < item.PriceGold || user.Gem < item.PriceGem)
+                {
+                    return BadRequest(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "Not enough currency",
+                        Data = new
+                        {
+                            RequiredGold = item.PriceGold,
+                            RequiredGem = item.PriceGem,
+                            UserGold = user.Gold,
+                            UserGem = user.Gem
+                        }
+                    });
+                }
+
+                user.Gold -= item.PriceGold ?? 0;
+                user.Gem -= item.PriceGem ?? 0;
+
+                var inv = _context.Inventories
+                    .FirstOrDefault(i => i.UserId == dto.UserId && i.ItemId == dto.ItemId);
+
+                if (inv != null)
+                {
+                    inv.Quantity = (inv.Quantity ?? 0) + 1;
+                }
+                else
+                {
+                    inv = new Inventory
+                    {
+                        UserId = dto.UserId,
+                        ItemId = dto.ItemId,
+                        Quantity = 1,
+                        PurchasePriceGold = item.PriceGold,
+                        PurchasePriceGem = item.PriceGem,
+                        PurchasedAt = DateTime.UtcNow
+                    };
+                    _context.Inventories.Add(inv);
+                }
+
+                var transaction = new Transaction
+                {
+                    UserId = dto.UserId,
+                    ItemId = dto.ItemId,
+                    TransactionType = "Buy",
+                    CurrencyType = "Gold+Gem",
+                    Amount = (item.PriceGold ?? 0) + (item.PriceGem ?? 0),
+                    Quantity = 1,
+                    CreateAt = DateTime.UtcNow
+                };
+
+                _context.Transactions.Add(transaction);
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new ResponseAPI
+                {
+                    IsSuccess = true,
+                    Notification = "Purchase success",
+                    Data = new
+                    {
+                        User = new { user.UserId, user.Gold, user.Gem },
+                        Inventory = new { inv.InvenId, inv.ItemId, inv.Quantity },
+                        Transaction = new
+                        {
+                            transaction.TransactionId,
+                            transaction.TransactionType,
+                            transaction.Amount,
+                            transaction.CurrencyType,
+                            transaction.CreateAt
+                        }
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ResponseAPI
+                {
+                    IsSuccess = false,
+                    Notification = "Error",
+                    Data = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("inventory/{userId}")]
+        public async Task<IActionResult> GetInventoryByUserId(int userId)
+        {
+            try
+            {
+                var userExists = _context.Users.Any(u => u.UserId == userId);
+                if (!userExists)
+                {
+                    return NotFound(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "User not found",
+                        Data = null
+                    });
+                }
+
+                var inventory = await _context.Inventories
+                    .Where(i => i.UserId == userId)
+                    .Select(i => new InventoryDTO
+                    {
+                        InvenId = i.InvenId,
+                        ItemId = i.ItemId,
+                        ItemName = i.Item.ItemName,
+                        Description = i.Item.Description,
+                        ProductImage = i.Item.ProductImage,
+                        ItemType = i.Item.ItemType,
+                        Quantity = i.Quantity ?? 1,
+                        PurchasePriceGold = i.PurchasePriceGold,
+                        PurchasePriceGem = i.PurchasePriceGem,
+                        PurchasedAt = i.PurchasedAt
+                    })
+                    .ToListAsync();
+
+                return Ok(new ResponseAPI
+                {
+                    IsSuccess = true,
+                    Notification = "Inventory retrieved successfully",
+                    Data = inventory
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ResponseAPI
+                {
+                    IsSuccess = false,
+                    Notification = "Error",
+                    Data = ex.InnerException?.Message ?? ex.Message
+                });
+            }
+        }
 
 
     }
