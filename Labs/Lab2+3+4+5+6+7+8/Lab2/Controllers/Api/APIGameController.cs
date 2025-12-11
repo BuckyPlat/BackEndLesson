@@ -717,7 +717,6 @@ namespace Lab2.Controllers.Api
         }
 
         [HttpGet("GetAllResultByUser/{userId}")]
-        [Authorize]
         public async Task<IActionResult> GetAllResultByUser(string userId)
         {
             try
