@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 
 
 
@@ -183,6 +184,7 @@ namespace Projectbakamitai.Controllers.API
             }
         }
 
+        
         [HttpGet("profile/{userId}")]
         public async Task<IActionResult> GetProfile(int userId)
         {
@@ -226,7 +228,7 @@ namespace Projectbakamitai.Controllers.API
                 });
             }
         }
-
+        [Authorize]
         [HttpDelete("delete/{userId}")]
         public async Task<IActionResult> DeleteUser(int userId)
         {
@@ -280,6 +282,7 @@ namespace Projectbakamitai.Controllers.API
             }
         }
 
+        [Authorize]
         [HttpPut("profile/{userId}")]
         public async Task<IActionResult> UpdateProfile(int userId, [FromForm] UpdateProfileDTO profileDTO)
         {
@@ -502,6 +505,52 @@ namespace Projectbakamitai.Controllers.API
             }
         }
 
+        [Authorize]
+        [HttpPut("{itemId}/update-price")]
+        public async Task<IActionResult> UpdateItemPrice(int itemId, [FromBody] UpdateItemPriceDTO priceDTO)
+        {
+            try
+            {
+                var item = await _context.Items.FirstOrDefaultAsync(x => x.ItemId == itemId);
+
+                if (item == null)
+                {
+                    return NotFound(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "Item not found",
+                        Data = null
+                    });
+                }
+
+                item.PriceGold = priceDTO.GoldPrice;
+                item.PriceGem = priceDTO.GemPrice;
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new ResponseAPI
+                {
+                    IsSuccess = true,
+                    Notification = "Item price updated successfully",
+                    Data = new
+                    {
+                        item.ItemId,
+                        item.PriceGold,
+                        item.PriceGem
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest( new ResponseAPI
+                {
+                    IsSuccess = false,
+                    Notification = "Internal server error",
+                    Data = ex.Message
+                });
+            }
+        }
+
         [HttpPost("buy")]
         public async Task<IActionResult> BuyItem([FromBody] BuyItemDTO dto)
         {
@@ -656,6 +705,162 @@ namespace Projectbakamitai.Controllers.API
             }
         }
 
+        [HttpPost("sellItem")]
+        public async Task<IActionResult> SellItem([FromBody] SellItemDTO dto)
+        {
+            try
+            {
+                var profile = await _context.PlayerProfiles
+                    .FirstOrDefaultAsync(p => p.UserId == dto.UserId);
+
+                var item = await _context.Items
+                    .FirstOrDefaultAsync(i => i.ItemId == dto.ItemId);
+
+                var inv = await _context.Inventories
+                    .FirstOrDefaultAsync(i => i.UserId == dto.UserId && i.ItemId == dto.ItemId);
+
+                if (profile == null || item == null)
+                {
+                    return BadRequest(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "Invalid user or item",
+                        Data = null
+                    });
+                }
+
+                if (inv == null || inv.Quantity < dto.Quantity)
+                {
+                    return BadRequest(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "Not enough items in inventory",
+                        Data = null
+                    });
+                }
+
+                // Tính số tiền nhận được
+                int goldEarned = (item.PriceGold ?? 0) * dto.Quantity;
+                int gemEarned = (item.PriceGem ?? 0) * dto.Quantity;
+
+                // Update inventory
+                inv.Quantity -= dto.Quantity;
+                if (inv.Quantity == 0)
+                    _context.Inventories.Remove(inv);
+
+                // Update player profile money
+                profile.Gold = (profile.Gold ?? 0) + goldEarned;
+                profile.Gem = (profile.Gem ?? 0) + gemEarned;
+
+                // Create transaction log
+                var transaction = new Transaction
+                {
+                    UserId = dto.UserId,
+                    ItemId = dto.ItemId,
+                    TransactionType = "Sell",
+                    CurrencyType = "Gold+Gem",
+                    Amount = goldEarned + gemEarned,
+                    Quantity = dto.Quantity,
+                    CreateAt = DateTime.UtcNow
+                };
+
+                _context.Transactions.Add(transaction);
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new ResponseAPI
+                {
+                    IsSuccess = true,
+                    Notification = "Sell success",
+                    Data = new
+                    {
+                        PlayerMoney = new
+                        {
+                            profile.UserId,
+                            profile.Gold,
+                            profile.Gem
+                        },
+                        Inventory = inv != null ? new
+                        {
+                            inv.InvenId,
+                            inv.ItemId,
+                            inv.Quantity
+                        } : null,
+                        Transaction = new
+                        {
+                            transaction.TransactionId,
+                            transaction.TransactionType,
+                            transaction.CurrencyType,
+                            transaction.Amount,
+                            transaction.Quantity,
+                            transaction.CreateAt
+                        }
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ResponseAPI
+                {
+                    IsSuccess = false,
+                    Notification = "Internal server error",
+                    Data = ex.Message
+                });
+            }
+        }
+
+        [Authorize]
+        [HttpGet("user/{userId}/transactions")]
+        public async Task<IActionResult> GetUserTransactions(int userId)
+        {
+            try
+            {
+                var exists = await _context.Users.AnyAsync(u => u.UserId == userId);
+                if (!exists)
+                {
+                    return BadRequest(new ResponseAPI
+                    {
+                        IsSuccess = false,
+                        Notification = "User not found",
+                        Data = null
+                    });
+                }
+
+                var transactions = await _context.Transactions
+                    .Where(t => t.UserId == userId)
+                    .Include(t => t.Item)
+                    .OrderByDescending(t => t.CreateAt)
+                    .Select(t => new TransactionDTO
+                    {
+                        TransactionId = t.TransactionId,
+                        ItemId = t.ItemId,
+                        ItemName = t.Item.ItemName,
+                        ProductImage = t.Item.ProductImage,
+                        TransactionType = t.TransactionType,
+                        CurrencyType = t.CurrencyType,
+                        Amount = t.Amount,
+                        Quantity = t.Quantity ?? 1,
+                        CreateAt = t.CreateAt ?? DateTime.UtcNow
+                    })
+                    .ToListAsync();
+
+                return Ok(new ResponseAPI
+                {
+                    IsSuccess = true,
+                    Notification = "Transactions retrieved successfully",
+                    Data = transactions
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ResponseAPI
+                {
+                    IsSuccess = false,
+                    Notification = "Error retrieving transactions",
+                    Data = ex.InnerException?.Message ?? ex.Message
+                });
+            }
+        }
 
     }
 }

@@ -18,7 +18,14 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.0.1" />
+    <PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="9.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="8.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="ViewModels\" />
+    <Folder Include="Views\Player\" />
+    <Folder Include="Views\Shop\" />
   </ItemGroup>
 
 </Project>
