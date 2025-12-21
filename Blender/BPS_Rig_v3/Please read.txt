@@ -1,0 +1,6 @@
+Hi, SpielefreakJ here.
+
+The face of the rig is black but this is only in solid mode.
+In render and material mode it looks fine.
+
+I have no idea why it does this and if does that since the beginning (Blender I tried it with: 2.83.20)
